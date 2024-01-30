@@ -17,7 +17,9 @@ parser.add_argument("--render", nargs="+", type=int, default=[0, 3], help="Viewp
 args = parser.parse_args()
 
 log_dir = args.source_path
+print("Reading tb file in " + log_dir)
 reader = SummaryReader(log_dir)
+print("Finished reading tb file. Starting exports...")
 
 df_scal = reader.scalars
 
@@ -57,6 +59,7 @@ if(not args.no_scal):
 
     # plot training loss curves
     sns.set_style("darkgrid")
+    sns.set_palette("tab10")
     plt.figure(figsize=(12, 8))
     plt.title('Training loss', fontsize=18)
     plt.plot(df_train_metrics['train_loss_patches/l1_loss'], label='L1 loss', linewidth=0.5, alpha=0.8)
@@ -72,13 +75,14 @@ if(not args.no_scal):
     plt.gca().set_xticklabels(['{:,.0f}'.format(x) for x in current_values_x])
 
     # export plot as png
-    plt.savefig(plot_folder + '/training_loss.png')
+    plt.savefig(plot_folder + '/training_loss.png', bbox_inches='tight')
     
     print("Exported training loss plot to " + plot_folder)
 
 
     # plot L1 loss curves
     sns.set_style("darkgrid")
+    sns.set_palette("tab10")
     plt.figure(figsize=(12, 8))
     plt.title('L1 loss', fontsize=18)
     plt.plot(df_eval_metrics['train/loss_viewpoint - l1_loss'], label='Train', lw=2)
@@ -94,13 +98,14 @@ if(not args.no_scal):
     plt.gca().set_xticklabels(['{:,.0f}'.format(x) for x in current_values_x])
 
     # export plot as png
-    plt.savefig(plot_folder + '/l1_loss.png')
+    plt.savefig(plot_folder + '/l1_loss.png', bbox_inches='tight')
 
     print("Exported L1 loss plot to " + plot_folder)
 
 
     # plot psnr curves
     sns.set_style("darkgrid")
+    sns.set_palette("tab10")
     plt.figure(figsize=(12, 8))
     plt.title('PSNR', fontsize=18)
     plt.plot(df_eval_metrics['train/loss_viewpoint - psnr'], label='Train', lw=2)
@@ -116,13 +121,14 @@ if(not args.no_scal):
     plt.gca().set_xticklabels(['{:,.0f}'.format(x) for x in current_values_x])
 
     # export plot as png
-    plt.savefig(plot_folder + '/psnr.png')
+    plt.savefig(plot_folder + '/psnr.png', bbox_inches='tight')
 
     print("Exported PSNR plot to " + plot_folder)
 
 
     # plot total points
     sns.set_style("darkgrid")
+    sns.set_palette("tab10")
     plt.figure(figsize=(12, 8))
     plt.title('Total points', fontsize=18)
     plt.plot(df_eval_metrics['total_points'], lw=2)
@@ -138,7 +144,7 @@ if(not args.no_scal):
     plt.gca().set_yticklabels(['{:,.0f}'.format(x) for x in current_values_y])
 
     # export plot as png
-    plt.savefig(plot_folder + '/total_points.png')
+    plt.savefig(plot_folder + '/total_points.png', bbox_inches='tight')
 
     print("Exported total points plot to " + plot_folder)
 
@@ -155,6 +161,7 @@ if(not args.no_hist):
     df_hist['counts_greater_than_or_equal_0.5'] = df_hist.apply(lambda row: row['counts'][row['limits'] >= 0.5].sum(), axis=1)
 
     sns.set_style("darkgrid")
+    sns.set_palette("tab10")
 
     # Initialize the figure
     plt.figure(figsize=(12, 8))
@@ -182,7 +189,7 @@ if(not args.no_hist):
     plt.gca().set_yticklabels(['{:,.0f}'.format(x) for x in current_values_y])
 
     # Export plot as png
-    plt.savefig(plot_folder + '/opacity_low_vs_high.png')
+    plt.savefig(plot_folder + '/opacity_low_vs_high.png', bbox_inches='tight')
 
     print("Exported low vs. high opacity plot to " + plot_folder)
 
@@ -217,7 +224,7 @@ if(not args.no_hist):
     plt.gca().set_yticklabels(['{:,.0f}'.format(x) for x in current_values_y])
 
     # export plot as png
-    plt.savefig(plot_folder + '/opacity_count.png')
+    plt.savefig(plot_folder + '/opacity_count.png', bbox_inches='tight')
     
     print("Exported Gaussians per opacity plot to " + plot_folder)
 
