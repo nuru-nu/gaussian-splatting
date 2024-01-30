@@ -13,6 +13,8 @@ import os
 import logging
 from argparse import ArgumentParser
 import shutil
+import time
+from datetime import timedelta
 
 # This Python script is based on the shell converter script provided in the MipNerF 360 repository.
 parser = ArgumentParser("Colmap converter")
@@ -27,6 +29,8 @@ args = parser.parse_args()
 colmap_command = '"{}"'.format(args.colmap_executable) if len(args.colmap_executable) > 0 else "colmap"
 magick_command = '"{}"'.format(args.magick_executable) if len(args.magick_executable) > 0 else "magick"
 use_gpu = 1 if not args.no_gpu else 0
+
+start_time = time.time()
 
 if not args.skip_matching:
     os.makedirs(args.source_path + "/distorted/sparse", exist_ok=True)
@@ -121,4 +125,5 @@ if(args.resize):
             logging.error(f"12.5% resize failed with code {exit_code}. Exiting.")
             exit(exit_code)
 
+print("Total elapsed time: " + str(timedelta(seconds=time.time() - start_time)))
 print("Done.")

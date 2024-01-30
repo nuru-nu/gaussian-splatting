@@ -1,0 +1,8 @@
+{
+  "OutputFoldersPerTargetSystem": {
+    "Local Machine": [
+      "SIBR_viewers\\out\\build\\x64-Debug",
+      "SIBR_viewers\\out\\install\\x64-Debug"
+    ]
+  }
+}
