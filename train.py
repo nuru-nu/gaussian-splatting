@@ -11,6 +11,9 @@
 
 import os
 import torch
+import torchvision
+import pandas as pd
+from torchvision.utils import save_image
 from random import randint
 from utils.loss_utils import l1_loss, ssim
 from gaussian_renderer import render, network_gui
@@ -18,6 +21,8 @@ import sys
 from scene import Scene, GaussianModel
 from utils.general_utils import safe_state
 import uuid
+import time
+from datetime import timedelta
 from tqdm import tqdm
 from utils.image_utils import psnr
 from argparse import ArgumentParser, Namespace
@@ -33,6 +38,7 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoi
     tb_writer = prepare_output_and_logger(dataset)
     gaussians = GaussianModel(dataset.sh_degree)
     scene = Scene(dataset, gaussians)
+    df = prepare_df(dataset, opt, scene)
     gaussians.training_setup(opt)
     if checkpoint:
         (model_params, first_iter) = torch.load(checkpoint)
@@ -104,7 +110,7 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoi
                 progress_bar.close()
 
             # Log and save
-            training_report(tb_writer, iteration, Ll1, loss, l1_loss, iter_start.elapsed_time(iter_end), testing_iterations, scene, render, (pipe, background))
+            training_report(tb_writer, iteration, Ll1, loss, l1_loss, iter_start.elapsed_time(iter_end), testing_iterations, scene, render, (pipe, background), dataset)
             if (iteration in saving_iterations):
                 print("\n[ITER {}] Saving Gaussians".format(iteration))
                 scene.save(iteration)
@@ -131,13 +137,20 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoi
                 print("\n[ITER {}] Saving Checkpoint".format(iteration))
                 torch.save((gaussians.capture(), iteration), scene.model_path + "/chkpnt" + str(iteration) + ".pth")
 
+    df.at[0, "total_points"] = scene.gaussians.get_xyz.shape[0]
+    df.at[0, "train_time"] = timedelta(seconds=time.time() - start_time)
+    df.to_csv("./output/output.csv", mode='a', index=False, header=not os.path.exists("./output/output.csv"))
+
 def prepare_output_and_logger(args):    
     if not args.model_path:
-        if os.getenv('OAR_JOB_ID'):
-            unique_str=os.getenv('OAR_JOB_ID')
-        else:
-            unique_str = str(uuid.uuid4())
-        args.model_path = os.path.join("./output/", unique_str[0:10])
+        # Initialize the counter
+        counter = 1
+        # Create the output directory name
+        args.model_path = os.path.join("./output/", os.path.basename(args.source_path) + "_out_{:04d}".format(counter))
+        while os.path.exists(args.model_path):
+            # If it exists, increment the counter and create a new directory name
+            counter += 1
+            args.model_path = os.path.join("./output/", os.path.basename(args.source_path) + "_out_{:04d}".format(counter))
         
     # Set up output folder
     print("Output folder: {}".format(args.model_path))
@@ -153,7 +166,7 @@ def prepare_output_and_logger(args):
         print("Tensorboard not available: not logging progress")
     return tb_writer
 
-def training_report(tb_writer, iteration, Ll1, loss, l1_loss, elapsed, testing_iterations, scene : Scene, renderFunc, renderArgs):
+def training_report(tb_writer, iteration, Ll1, loss, l1_loss, elapsed, testing_iterations, scene : Scene, renderFunc, renderArgs, args):
     if tb_writer:
         tb_writer.add_scalar('train_loss_patches/l1_loss', Ll1.item(), iteration)
         tb_writer.add_scalar('train_loss_patches/total_loss', loss.item(), iteration)
@@ -173,9 +186,17 @@ def training_report(tb_writer, iteration, Ll1, loss, l1_loss, elapsed, testing_i
                     image = torch.clamp(renderFunc(viewpoint, scene.gaussians, *renderArgs)["render"], 0.0, 1.0)
                     gt_image = torch.clamp(viewpoint.original_image.to("cuda"), 0.0, 1.0)
                     if tb_writer and (idx < 5):
-                        tb_writer.add_images(config['name'] + "_view_{}/render".format(viewpoint.image_name), image[None], global_step=iteration)
+                        # save rendered image
+                        img_dir = args.model_path + '/eval/' + config['name'] + "/_view_{}/render".format(viewpoint.image_name)
+                        os.makedirs(img_dir, exist_ok=True)
+                        save_image(image, img_dir + "/" + str(iteration) + '.png')
+                        #tb_writer.add_images(config['name'] + "_view_{}/render".format(viewpoint.image_name), image[None], global_step=iteration)
                         if iteration == testing_iterations[0]:
-                            tb_writer.add_images(config['name'] + "_view_{}/ground_truth".format(viewpoint.image_name), gt_image[None], global_step=iteration)
+                            # save ground truth image
+                            gt_dir = args.model_path + '/eval/' + config['name'] + "/_view_{}/ground_truth".format(viewpoint.image_name)
+                            os.makedirs(gt_dir, exist_ok=True)
+                            save_image(gt_image, gt_dir + '/gt.png')
+                            #tb_writer.add_images(config['name'] + "_view_{}/ground_truth".format(viewpoint.image_name), gt_image[None], global_step=iteration)
                     l1_test += l1_loss(image, gt_image).mean().double()
                     psnr_test += psnr(image, gt_image).mean().double()
                 psnr_test /= len(config['cameras'])
@@ -189,6 +210,15 @@ def training_report(tb_writer, iteration, Ll1, loss, l1_loss, elapsed, testing_i
             tb_writer.add_histogram("scene/opacity_histogram", scene.gaussians.get_opacity, iteration)
             tb_writer.add_scalar('total_points', scene.gaussians.get_xyz.shape[0], iteration)
         torch.cuda.empty_cache()
+
+def prepare_df(args, opt, scene : Scene):
+    df_out = pd.DataFrame(columns=["model_name", "input_folder", "camera_count", "init_points", "iterations", "resolution_divisor", "train_time", "test_l1_loss", "test_psnr", "train_l1_loss", "train_psnr", "total_points"])
+    df_out = df_out.append({"model_name": os.path.basename(args.model_path), "input_folder": os.path.basename(args.source_path), "camera_train_count": len(scene.getTrainCameras()), "camera_test_count": len(scene.getTestCameras()), "init_points": scene.init_points, "iterations": opt.iterations, "resolution_divisor": args.resolution}, ignore_index=True)
+
+    df_in = pd.read_csv("./input/input.csv", header=0, index_col=0)
+    df_out = df_out.merge(df_in, left_on="input_folder", right_index=True, how="left")
+
+    return df_out
 
 if __name__ == "__main__":
     # Set up command line argument parser
@@ -208,10 +238,14 @@ if __name__ == "__main__":
     parser.add_argument("--start_checkpoint", type=str, default = None)
     args = parser.parse_args(sys.argv[1:])
     args.save_iterations.append(args.iterations)
+
+    start_time = time.time()
     
     print("Optimizing " + args.model_path)
     
     args.test_iterations = list(range(0, args.iterations +1, args.test_steps))
+    if args.test_iterations[-1] != args.iterations:
+        args.test_iterations.append(args.iterations)
 
     # Initialize system state (RNG)
     safe_state(args.quiet)
@@ -220,6 +254,8 @@ if __name__ == "__main__":
     network_gui.init(args.ip, args.port)
     torch.autograd.set_detect_anomaly(args.detect_anomaly)
     training(lp.extract(args), op.extract(args), pp.extract(args), args.test_iterations, args.save_iterations, args.checkpoint_iterations, args.start_checkpoint, args.debug_from)
+
+    model_path = args.model_path
 
     # All done
     print("\nTraining complete.")

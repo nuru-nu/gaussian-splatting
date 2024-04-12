@@ -4,6 +4,7 @@ import pandas as pd
 import matplotlib.pyplot as plt
 import matplotlib.colors as mcolors
 import seaborn as sns
+from tqdm import tqdm
 from argparse import ArgumentParser
 
 
@@ -237,14 +238,18 @@ if(not args.no_img):
     render_tags = [img_tags[i] for i in args.render] # ['test_view_0161/render', 'test_view_0049/render']
 
     for render_tag in render_tags:
+        print("Exporting " + render_tag + " images...")
         render_folder = log_dir + '/eval/' + render_tag
         os.makedirs(render_folder, exist_ok=True)
         counter = int(1)
+        total_images = str()
+        progress_bar = tqdm(range(0, len(df_img[df_img['tag'] == render_tag])), desc="Images rendered")
 
         for i in df_img.index:
             if df_img.loc[i, 'tag'] != render_tag:
                 continue
-
+            
+            #print("Exporting image " + str(counter) + "/" + total_images + "...")
             image = df_img.loc[i, 'value']
             height, width, _ = image.shape
             plt.figure(figsize=(width/80, height/80), dpi=80)
@@ -254,8 +259,10 @@ if(not args.no_img):
             plt.savefig(render_folder + '/' + str(counter) + '.png', bbox_inches='tight', pad_inches=0, transparent=True, dpi=300)
             plt.close()
 
+            progress_bar.update(1)
             counter += 1
         
+        progress_bar.close()
         print("Exported " + render_tag + " images to " + render_folder)
     print("Finished exporting images")
 

@@ -11,6 +11,7 @@
 
 import os
 import logging
+import pandas as pd
 from argparse import ArgumentParser
 import shutil
 import time
@@ -126,4 +127,10 @@ if(args.resize):
             exit(exit_code)
 
 print("Total elapsed time: " + str(timedelta(seconds=time.time() - start_time)))
+
+df = pd.read_csv("./input/input.csv", header=0, index_col=0)
+print(os.path.basename(args.source_path))
+df.at[os.path.basename(args.source_path), 'convert_time'] = timedelta(seconds=time.time() - start_time)
+df.to_csv("./input/input.csv")
+
 print("Done.")
