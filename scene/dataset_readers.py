@@ -104,6 +104,10 @@ def readColmapCameras(cam_extrinsics, cam_intrinsics, images_folder):
     sys.stdout.write('\n')
     return cam_infos
 
+def readManualTestCameras(path):
+    with open(path) as json_file:
+        return json.load(json_file)
+
 def fetchPly(path):
     plydata = PlyData.read(path)
     vertices = plydata['vertex']
@@ -270,18 +274,29 @@ def readManualSceneInfo(path, images, eval, llffhold=8):
     cam_infos_unsorted = readColmapCameras(cam_extrinsics=cam_extrinsics, cam_intrinsics=cam_intrinsics, images_folder=os.path.join(path, reading_dir))
     cam_infos = sorted(cam_infos_unsorted.copy(), key = lambda x : x.image_name)
 
+    test_cam_idx = None
+    if os.path.exists(os.path.join(path, "manual", "test_cameras.json")):
+        test_cam_idx = readManualTestCameras(os.path.join(path, "manual", "test_cameras.json"))
+        test_cam_infos = [cam_infos[i] for i in test_cam_idx]
+
     if eval:
-        train_cam_infos = [c for idx, c in enumerate(cam_infos) if idx % llffhold != 0]
-        test_cam_infos = [c for idx, c in enumerate(cam_infos) if idx % llffhold == 0]
+        if test_cam_idx:
+            train_cam_infos = [c for idx, c in enumerate(cam_infos) if idx not in test_cam_idx]
+        else:
+            train_cam_infos = [c for idx, c in enumerate(cam_infos) if idx % llffhold != 0]
+            test_cam_infos = [c for idx, c in enumerate(cam_infos) if idx % llffhold == 0]
     else:
-        train_cam_infos = cam_infos
+        if test_cam_idx:
+            train_cam_infos = [c for idx, c in enumerate(cam_infos) if idx not in test_cam_idx]
+        else:
+            train_cam_infos = cam_infos
         test_cam_infos = []
 
     nerf_normalization = getNerfppNorm(train_cam_infos)
 
     ply_path = os.path.join(path, "points3d.ply")
     if not os.path.exists(ply_path):
-        # Since this data set has no colmap data, we start with random points
+        # Since this data set has no colmap ply, we start with random points
         num_pts = 100_000
         print(f"Generating random point cloud ({num_pts})...")
         
