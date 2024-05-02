@@ -28,6 +28,8 @@ colmap_command = '"{}"'.format(args.colmap_executable) if len(args.colmap_execut
 magick_command = '"{}"'.format(args.magick_executable) if len(args.magick_executable) > 0 else "magick"
 use_gpu = 1 if not args.no_gpu else 0
 
+logging.getLogger().setLevel(logging.INFO)
+
 if not args.skip_matching:
     os.makedirs(args.source_path + "/distorted/sparse", exist_ok=True)
 
@@ -38,19 +40,21 @@ if not args.skip_matching:
         --ImageReader.single_camera 1 \
         --ImageReader.camera_model " + args.camera + " \
         --SiftExtraction.use_gpu " + str(use_gpu)
+    logging.info('Running %s', feat_extracton_cmd)
     exit_code = os.system(feat_extracton_cmd)
     if exit_code != 0:
         logging.error(f"Feature extraction failed with code {exit_code}. Exiting.")
-        exit(exit_code)
+        exit(1)
 
     ## Feature matching
     feat_matching_cmd = colmap_command + " exhaustive_matcher \
         --database_path " + args.source_path + "/distorted/database.db \
         --SiftMatching.use_gpu " + str(use_gpu)
+    logging.info('Running %s', feat_matching_cmd)
     exit_code = os.system(feat_matching_cmd)
     if exit_code != 0:
         logging.error(f"Feature matching failed with code {exit_code}. Exiting.")
-        exit(exit_code)
+        exit(2)
 
     ### Bundle adjustment
     # The default Mapper tolerance is unnecessarily large,
@@ -60,10 +64,11 @@ if not args.skip_matching:
         --image_path "  + args.source_path + "/input \
         --output_path "  + args.source_path + "/distorted/sparse \
         --Mapper.ba_global_function_tolerance=0.000001")
+    logging.info('Running %s', mapper_cmd)
     exit_code = os.system(mapper_cmd)
     if exit_code != 0:
         logging.error(f"Mapper failed with code {exit_code}. Exiting.")
-        exit(exit_code)
+        exit(3)
 
 ### Image undistortion
 ## We need to undistort our images into ideal pinhole intrinsics.
@@ -72,10 +77,11 @@ img_undist_cmd = (colmap_command + " image_undistorter \
     --input_path " + args.source_path + "/distorted/sparse/0 \
     --output_path " + args.source_path + "\
     --output_type COLMAP")
+logging.info('Running %s', img_undist_cmd)
 exit_code = os.system(img_undist_cmd)
 if exit_code != 0:
     logging.error(f"Mapper failed with code {exit_code}. Exiting.")
-    exit(exit_code)
+    exit(4)
 
 files = os.listdir(args.source_path + "/sparse")
 os.makedirs(args.source_path + "/sparse/0", exist_ok=True)
@@ -105,20 +111,20 @@ if(args.resize):
         exit_code = os.system(magick_command + " mogrify -resize 50% " + destination_file)
         if exit_code != 0:
             logging.error(f"50% resize failed with code {exit_code}. Exiting.")
-            exit(exit_code)
+            exit(5)
 
         destination_file = os.path.join(args.source_path, "images_4", file)
         shutil.copy2(source_file, destination_file)
         exit_code = os.system(magick_command + " mogrify -resize 25% " + destination_file)
         if exit_code != 0:
             logging.error(f"25% resize failed with code {exit_code}. Exiting.")
-            exit(exit_code)
+            exit(6)
 
         destination_file = os.path.join(args.source_path, "images_8", file)
         shutil.copy2(source_file, destination_file)
         exit_code = os.system(magick_command + " mogrify -resize 12.5% " + destination_file)
         if exit_code != 0:
             logging.error(f"12.5% resize failed with code {exit_code}. Exiting.")
-            exit(exit_code)
+            exit(7)
 
 print("Done.")
