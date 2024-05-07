@@ -4,14 +4,14 @@ The following directory structure is assumed:
 
 root/
 └── source1
-    ├── experiments
-    │   └── exp1
-    │       ├── extract_args.json
-    │       ├── convert_args.json
-    │       ├── helper_args.json
+    ├── runs
+    │   └── run1
+    │       ├── 01_extract_args.json
+    │       ├── 02_convert_args.json
+    │       ├── 03_helper_args.json
     │       └── models
     │           └── model1
-    │               └── train_args.json
+    │               └── 01_train_args.json
     └── images
         ├── frame1.jpg
         └── frame2.jpg
@@ -30,6 +30,7 @@ import json
 import glob
 import logging
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -41,27 +42,31 @@ parser = argparse.ArgumentParser('Gaussian Splatting Runner')
 parser.add_argument(
     '--root_glob', default='*', help='Glob for subdirs in root folder.')
 parser.add_argument(
-    '--experiments_glob', default='*',
-    help='Glob for subdirs in experiments folder.')
+    '--runs_glob', default='*',
+    help='Glob for subdirs in runs/ folder.')
 parser.add_argument(
     '--models_glob', default='*', help='Glob for subdirs in models folder.')
+parser.add_argument(
+    '--quiet', action='store_true', help='Drops individual tool output.')
+parser.add_argument('--no_color', action='store_true')
 parser.add_argument('root', help='Root directory')
 
 arg0_path = os.path.abspath(os.path.dirname(__file__))
 
+TQDM_RE = re.compile('.*%\\|')  # like '100%|███████| 10/10 [00:10<00:00]'
 
-def run_command(command, dir_path):
+
+def run_command(command, basepath, quiet):
+  """Executes command, returns `True` iff successful."""
+  dir_path = os.path.dirname(basepath)
   py_path = os.path.join(arg0_path, f'{command}.py')
-  args_path = os.path.join(dir_path, f'{command}_args.json')
-  log_path = os.path.join(dir_path, f'{command}_logs.txt')
-  results_path = os.path.join(dir_path, f'{command}_results.json')
+  args_path = basepath + '_args.json'
+  log_path = basepath + '_logs.txt'
+  results_path = basepath + '_results.json'
 
   if os.path.exists(log_path):
     logging.info('Skipping %s: found existing %s', command, log_path)
-    return
-  if not os.path.exists(args_path):
-    logging.warning('Skipping %s: missing %s', command, args_path)
-    return
+    return True
 
   logging.info('Running %s in %s', command, dir_path)
   args = json.load(open(args_path))
@@ -70,37 +75,57 @@ def run_command(command, dir_path):
   ts = time.strftime('%Y%m%d_%H%M%S', time.localtime())
 
   with open(log_path, 'a') as f:
-    logging.info('Starting %s', cmd_args)
-    result = subprocess.run(
-        cmd_args, stdout=f, stderr=subprocess.STDOUT, cwd=dir_path)
+    logging.info('Starting %s in %s', cmd_args, dir_path)
+    process = subprocess.Popen(
+        cmd_args, cwd=dir_path,
+        stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+    while True:
+      output = process.stdout.readline()
+      if output == '' and process.poll() is not None:
+        break
+      if TQDM_RE.match(output):
+        output = output.strip('\n') + '\r'
+      else:
+        f.write(output)
+      if not quiet:
+        sys.stdout.write(output)
+        sys.stdout.flush()
 
   dt = time.time() - t0
+  returncode = process.returncode
   logging.info('Finished command after %.1f minutes', dt / 60)
   with open(results_path, 'w') as f:
-    json.dump(dict(ts=ts, dt=dt, returncode=result.returncode, cwd=dir_path), f)
+    json.dump(dict(ts=ts, dt=dt, returncode=returncode, cwd=dir_path), f)
 
-  if result.returncode:
-    # import pdb; pdb.set_trace()
-    logging.fatal('Could not execute: %s', result)
+  if returncode:
+    logging.fatal('Could not execute: returncode=%d', returncode)
     logging.error('Contents %s: %s', log_path, open(log_path).read())
     shutil.move(log_path, log_path + f'_FAILED_{ts}')
-    sys.exit(1)
+    return False
+
+  return True
 
 
 def glob_dir(*args):
+  """Yields sorted glob of path-joined `args`, skipping "_*"."""
   for path in sorted(glob.glob(os.path.join(*args))):
-    if os.path.basename(path)[0] == '_':
+    if (os.path.basename(path) + '_')[0] == '_':
       logging.info('Skipping %s', path)
       continue
     yield path
 
 
-def process(subdir_path, models_glob):
-  run_command('extract', subdir_path)
-  run_command('convert', subdir_path)
-  run_command('helper', subdir_path)
-  for model_path in glob_dir(subdir_path, 'models', models_glob):
-    run_command('train', model_path)
+def run_directory(dir_path, quiet):
+  """Calls `run_command()` on "00_{command}_args.json" files in directory."""
+  for path in glob_dir(dir_path, '*_args.json'):
+    basepath = path[:-len('_args.json')]
+    basename = os.path.basename(basepath)
+    if '_' not in basename or not basename.split('_')[0].isdigit():
+      continue
+    _, command = basename.split('_', 1)
+    if not run_command(command, basepath, quiet):
+      return False
+  return True
 
 
 def main(args):
@@ -131,11 +156,14 @@ def main(args):
 
       logging.info(f'Found {len(image_paths)} images in "{dir_path}"')
 
-      for subdir_path in glob_dir(dir_path, 'experiments', args.experiments_glob):
-        if os.path.isdir(subdir_path):
-          process(subdir_path, args.models_glob)
+      if run_directory(dir_path, args.quiet):
+        for exp_dir in glob_dir(dir_path, 'runs', args.runs_glob):
+          if run_directory(exp_dir, args.quiet):
+            for model_dir in glob_dir(exp_dir, 'models', args.models_glob):
+              run_directory(model_dir, args.quiet)
 
 
 if __name__ == '__main__':
-  log_utils.setup_logging()
-  main(parser.parse_args())
+  args = parser.parse_args()
+  log_utils.setup_logging(colorize=not args.no_color)
+  main(args)
