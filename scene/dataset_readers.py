@@ -129,7 +129,7 @@ def storePly(path, xyz, rgb):
     ply_data = PlyData([vertex_element])
     ply_data.write(path)
 
-def readColmapSceneInfo(path, images, eval, llffhold=8):
+def readColmapSceneInfo(path, images, eval, eval_mod=8, eval_indices=""):
     try:
         cameras_extrinsic_file = os.path.join(path, "sparse/0", "images.bin")
         cameras_intrinsic_file = os.path.join(path, "sparse/0", "cameras.bin")
@@ -145,12 +145,20 @@ def readColmapSceneInfo(path, images, eval, llffhold=8):
     cam_infos_unsorted = readColmapCameras(cam_extrinsics=cam_extrinsics, cam_intrinsics=cam_intrinsics, images_folder=os.path.join(path, reading_dir))
     cam_infos = sorted(cam_infos_unsorted.copy(), key = lambda x : x.image_name)
 
-    if eval:
-        train_cam_infos = [c for idx, c in enumerate(cam_infos) if idx % llffhold != 0]
-        test_cam_infos = [c for idx, c in enumerate(cam_infos) if idx % llffhold == 0]
+    if eval_indices:
+        eval_indices = {int(eval_index) for eval_index in eval_indices.split(",")}
+    elif eval_mod:
+        eval_indices = {idx for idx in range(len(cam_infos)) if (idx + 1) % eval_mod == 0}
+    else:
+        eval_indices = set()
+
+    if eval and eval_indices:
+        train_cam_infos = [c for idx, c in enumerate(cam_infos) if idx not in eval_indices]
+        test_cam_infos = [c for idx, c in enumerate(cam_infos) if idx in eval_indices]
     else:
         train_cam_infos = cam_infos
         test_cam_infos = []
+    print(f"eval={eval}, eval_indices={eval_indices} -- {len(train_cam_infos)} train / {len(test_cam_infos)} test cameras")
 
     nerf_normalization = getNerfppNorm(train_cam_infos)
 
