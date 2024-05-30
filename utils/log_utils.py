@@ -10,20 +10,19 @@ _datefmt = '%Y%m%d_%H%M%S'
 
 class _ColorFormatter(logging.Formatter):
 
-    GREY = '\x1b[38;21m'
-    BLUE = '\x1b[34;21m'
-    GREEN = '\x1b[32;21m'
-    YELLOW = '\x1b[33;21m'
-    RED = '\x1b[31;21m'
-    BOLD_RED = '\x1b[31;1m'
+    # https://talyian.github.io/ansicolors/
+    GREY = '\x1b[38;5;15m'
+    YELLOW = '\x1b[33m'
+    RED = '\x1b[31m'
+    BG_RED = '\x1b[41m'
     RESET = '\x1b[0m'
 
     LEVEL_TO_COLOR = {
         logging.DEBUG: GREY,
-        logging.INFO: BLUE,
+        logging.INFO: '',
         logging.WARNING: YELLOW,
         logging.ERROR: RED,
-        logging.CRITICAL: BOLD_RED,
+        logging.CRITICAL: BG_RED,
     }
 
     def __init__(self, fmt, datefmt=None):
@@ -33,7 +32,7 @@ class _ColorFormatter(logging.Formatter):
       }
 
     def format(self, record):
-      self._formatters[record.levelno].format(record)
+      return self._formatters[record.levelno].format(record)
 
 
 def setup_logging(colorize=False):
