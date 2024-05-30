@@ -1,6 +1,7 @@
 
 import argparse
 import importlib.util
+import json
 import os
 
 import numpy as np
@@ -13,9 +14,12 @@ colmap_loader = importlib.util.module_from_spec(colmap_load_spec)
 colmap_load_spec.loader.exec_module(colmap_loader)
 
 parser = argparse.ArgumentParser('Utility to convert files etc')
-subparsers = parser.add_subparsers(title='command', required=True)
-convert_ply_parser = subparsers.add_parser('convert_ply')
-convert_ply_parser.add_argument('points3d_bin')
+parser.add_argument(
+    '--points3d_ply', action='store_true',
+    help='Converts colmap/sparse/0/points3d.bin to ./points3d.ply')
+parser.add_argument(
+    '--cameras_json', action='store_true',
+    help='Converts colmap/sparse/0/{images,cameras}.bin to cameras.json')
 
 
 # Copied from ./scene/dataset_reader.py
@@ -37,15 +41,83 @@ def storePly(path, xyz, rgb):
   ply_data.write(path)
 
 
+# Modified from ./scene/dataset_reader.py and ./utils/camera_utils.py
+def convertCameras(cam_extrinsics, cam_intrinsics):
+
+  def qvec2rotmat(qvec):
+    return np.array([
+        [1 - 2 * qvec[2]**2 - 2 * qvec[3]**2,
+         2 * qvec[1] * qvec[2] - 2 * qvec[0] * qvec[3],
+         2 * qvec[3] * qvec[1] + 2 * qvec[0] * qvec[2]],
+        [2 * qvec[1] * qvec[2] + 2 * qvec[0] * qvec[3],
+         1 - 2 * qvec[1]**2 - 2 * qvec[3]**2,
+         2 * qvec[2] * qvec[3] - 2 * qvec[0] * qvec[1]],
+        [2 * qvec[3] * qvec[1] - 2 * qvec[0] * qvec[2],
+         2 * qvec[2] * qvec[3] + 2 * qvec[0] * qvec[1],
+         1 - 2 * qvec[1]**2 - 2 * qvec[2]**2]])
+
+  cams = []
+  for idx, key in enumerate(cam_extrinsics):
+    extr = cam_extrinsics[key]
+    intr = cam_intrinsics[extr.camera_id]
+    height = intr.height
+    width = intr.width
+
+    uid = intr.id
+    R = np.transpose(qvec2rotmat(extr.qvec))
+    T = np.array(extr.tvec)
+
+    if intr.model=='SIMPLE_PINHOLE':
+      fy = fx = intr.params[0]
+    elif intr.model=='PINHOLE':
+      fx, fy = intr.params[:2]
+    else:
+      raise ValueError(intr.model)
+
+    Rt = np.zeros((4, 4))
+    Rt[:3, :3] = R.transpose()
+    Rt[:3, 3] = T
+    Rt[3, 3] = 1.0
+
+    W2C = np.linalg.inv(Rt)
+    pos = W2C[:3, 3]
+    rot = W2C[:3, :3]
+    serializable_array_2d = [x.tolist() for x in rot]
+    cams.append({
+        'id' : uid,
+        'img_name' : extr.name,
+        'width' : width,
+        'height' : height,
+        'position': pos.tolist(),
+        'rotation': serializable_array_2d,
+        'fy' : fy,
+        'fx' : fx,
+    })
+
+  return sorted(cams, key=lambda cam: cam['img_name'])
+
+
 def main(args):
-  if args.points3d_bin:
-    src = args.points3d_bin
-    base, ext = os.path.splitext(src)
+
+  if args.points3d_ply:
+    src = 'colmap/sparse/0/points3d.bin'
+    base, ext = os.path.splitext(os.path.basename(src))
     dst = f'{base}.ply'
     assert os.path.exists(src)
     xyz, rgb, _ = colmap_loader.read_points3D_binary(src)
     storePly(dst, xyz, rgb)
     print(f'Converted {src} to {dst} ({len(xyz)} points)')
+
+  if args.cameras_json:
+    src = 'colmap/sparse/0/images.bin'
+    cam_extrinsics = colmap_loader.read_extrinsics_binary(src)
+    cam_intrinsics = colmap_loader.read_intrinsics_binary(
+        src.replace('images.bin', 'cameras.bin'))
+    dst = 'cameras.json'
+    cams = convertCameras(cam_extrinsics, cam_intrinsics)
+    with open(dst, 'w') as f:
+      json.dump(cams, f)
+    print(f'Stored {len(cams)} cameras in {dst}.')
 
 
 if __name__ == '__main__':
