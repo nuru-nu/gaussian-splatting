@@ -65,6 +65,164 @@ The codebase has 4 main components:
 
 The components have different requirements w.r.t. both hardware and software. They have been tested on Windows 10 and Ubuntu Linux 22.04. Instructions for setting up and running each of them are found in the sections below.
 
+
+## nuru.nu changes
+
+Describing changes in the branch
+https://github.com/nuru-nu/gaussian-splatting/tree/andreas
+
+### Notebooks
+
+TODO clean notebooks up; currently they're in a bit of a mess
+
+- [./inspect.ipynb] is great to extract data from log files, and to visualize point clouds, camera positions, metrics etc
+- [Gaussian Splatting – train.py + render.py (Colab)](https://colab.research.google.com/drive/1kDuPPQ92spQeFZetBNn7hiVliyzk3-2A) use this if you don't have a CUDA compatible GPU and want to run the training on free Colab T4s instead (syncs data from sweeps via Google Drive)
+
+[./inspect.ipynb]: ./inspect.ipynb
+
+### Running on a Mac
+
+- COLMAP can be installed via `brew install colmap`
+- PLY files can be viewed with Meshlab `brew install meshlab`
+- PLY files can be viewed with Blender `brew install blender`
+
+### Running sweeps
+
+The main update is the addition of [./run.py] that allows experimentation of all steps, namely:
+
+1. Extraction of images that are used as an input to COLMAP ([./extract.py])
+2. Generation of initial pointcloud and estimation of camera positions using COLMAP SfM ([./convert.py])
+3. Optionally do something with results of `convert.py` with [./helper.py]
+4. Training of Gaussian Splatting models ([./train.py])
+5. Optionally do something with results of `train.py` with [./helper.py]
+
+The [./run.py] script traverses a nested folder hierarchy, where every sub-folder has a `00_{command}_args.json` file that specifies the arguments to individual commands. Upon command completion, new files `00_{command}_logs.txt` and `00_{command}_results.json` are created, as well as command-specific additional files. The initial digits (`00` in above example) indicate the order in which the commands should be executed.
+
+The main advantage of this approach is that it maps well on the multi-step procedure and that it allows for a great deal of flexibility of the experiments. One can design the "sweep" by preparing the directory structure with appropriate files, and then run it in a single go, or in multiple steps separated by interruptions, which works especially well with cheap preemptible compute. Having a single hierarchical folder structure also works well for exploration of the results, and syncing between machines (either by mounting a network drive, or by using `rsync`).
+
+There is also a [./sweep.py] to copy previous sweeps and design new ones (i.e. creating the empty directory structure with the `*_args.json` files that can be run by [./run.py]).
+
+It's maybe best to illustrate this folder structure and behavior with a concrete directory dump:
+
+**Before** running `python run.py data/`
+
+```
+$ tree data/
+data/scene1
+└── runs
+    ├── 1024px
+    │   ├── 01_extract_args.json
+    │   ├── 02_convert_args.json
+    │   ├── 03_helper_args.json
+    │   └── models
+    │       ├── 1k
+    │       │   └── 01_train_args.json
+    │       └── 2k
+    │           └── 01_train_args.json
+    ├── 512px
+    │   ├── 01_extract_args.json
+    │   ├── 02_convert_args.json
+    │   ├── 03_helper_args.json
+    │   └── models
+    │       └── 1k
+    │           └── 01_train_args.json
+    └── images
+        ├── 20240425_172506.jpg
+        ├── 20240425_172509.jpg
+        ├── 20240425_172516.jpg
+        ├── 20240425_172542.jpg
+        ├── 20240425_172546.jpg
+        ├── 20240425_172552.jpg
+        ├── 20240425_172557.jpg
+        ├── 20240425_172600.jpg
+        ├── 20240425_172604.jpg
+        ├── 20240425_172611.jpg
+        └── 20240425_172614.jpg
+```
+
+Note how every `{command}_args.json` maps to the execution of a script `{command}.py` with exactly the args specified in the JSON. The command will be executed with a CWD that is the directory containing the JSON file.
+
+There can be multiple sub-directories at all three levels (i.e. in `data/`, in `data/scene1/runs`, and in `data/scene1/runs/run1/models`).
+
+**After** running `python run.py data/` (output truncated) - note how every `*_args.json` file resulted in a `*_logs.txt` file with the command output and a `*_result.json` file with additional information (runtime etc), as well as additional files created by Colmap/`train.py` etc.
+
+```
+ tree data/
+data/scene1
+└── runs
+    ├── 1024px
+    │   ├── 01_extract_args.json
+    │   ├── 01_extract_logs.txt
+    │   ├── 01_extract_results.json
+    │   ├── 02_convert_args.json
+    │   ├── 02_convert_logs.txt
+    │   ├── 02_convert_results.json
+    │   ├── 03_helper_args.json
+    │   ├── 03_helper_logs.txt
+    │   ├── 03_helper_results.json
+    │   ├── cameras.json
+    │   ├── colmap
+    │   │   ├── distorted
+    │   │   │   ├── database.db
+    │   │   │   ├── database.db-shm
+    │   │   │   ├── database.db-wal
+    │   │   │   └── sparse
+    │   │   │       ├── 0
+    │   │   │       │   ├── cameras.bin
+    │   │   │       │   ├── images.bin
+    │   │   │       │   ├── points3D.bin
+    │   │   │       │   └── project.ini
+    │   │   │       └── 1
+    │   │   │           ├── cameras.bin
+    │   │   │           ├── images.bin
+    │   │   │           ├── points3D.bin
+    │   │   │           └── project.ini
+    │   │   ├── images
+    │   │   │   ├── 20240508_190928.jpg
+    │   │   │   └── 20240508_190929.jpg
+    │   │   ├── input
+    │   │   │   ├── 20240508_190928.jpg
+    │   │   │   ├── 20240508_190929.jpg
+    │   │   │   ├── 20240508_190931.jpg
+    │   │   │   ├── 20240508_190933.jpg
+    │   │   │   ├── 20240508_190938.jpg
+    │   │   │   └── 20240508_190949.jpg
+    │   │   ├── run-colmap-geometric.sh
+    │   │   ├── run-colmap-photometric.sh
+    │   │   ├── sparse
+    │   │   │   └── 0
+    │   │   │       ├── cameras.bin
+    │   │   │       ├── images.bin
+    │   │   │       ├── points3D.bin
+    │   │   │       └── points3D.ply
+    │   │   └── stereo
+    │   │       ├── consistency_graphs
+    │   │       ├── depth_maps
+    │   │       ├── fusion.cfg
+    │   │       ├── normal_maps
+    │   │       └── patch-match.cfg
+    │   ├── models
+    │   │   ├── 1k
+    │   │   │   ├── 01_train_args.json
+    │   │   │   ├── 01_train_logs.txt
+    │   │   │   ├── 01_train_logs.txt_FAILED_20240508_213948
+    │   │   │   ├── 01_train_results.json
+    │   │   │   ├── cameras.json
+    │   │   │   ├── cfg_args
+    │   │   │   ├── events.out.tfevents.1715197302.1951604e17ee.9315.0
+    │   │   │   ├── input.ply
+    │   │   │   └── point_cloud
+    │   │   │       └── iteration_1000
+    │   │   │           └── point_cloud.ply
+# ...
+```
+
+[./run.py]: ./run.py
+[./convert.py]: ./convert.py
+[./helper.py]: ./helper.py
+[./train.py]: ./train.py
+[./sweep.py]: ./sweep.py
+
 ## New features  [Please check regularly!]
 
 We will be adding several new features soon. In the meantime Orange has kindly added [OpenXR support](#openXR-support) for VR viewing. Please come back soon, we will be adding other features, building among others on recent 3DGS followup papers.

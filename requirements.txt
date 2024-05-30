@@ -1,0 +1,9 @@
+# NOTE: Only "light" dependencies included (see "nuru.nu changes" in README.md)
+# Use the conda environment for running the training.
+matplotlib
+numpy
+Pillow
+plyfile
+scipy
+tbparse
+visu3d
